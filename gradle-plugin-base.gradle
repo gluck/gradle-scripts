@@ -90,11 +90,11 @@ def setupUploadArchives(sonatypeRepositoryUrl) {
 
 allprojects {
 	afterEvaluate { project ->
-		if (hasProperty("release")) {
+		if (project.hasProperty("release")) {
 		    setupUploadArchives("https://oss.sonatype.org/service/local/staging/deploy/maven2/")
 		} else {
-		    version += "-SNAPSHOT"
-		    if (hasProperty("snapshot")) {
+		    project.version += "-SNAPSHOT"
+		    if (project.hasProperty("snapshot")) {
 		        setupUploadArchives("https://oss.sonatype.org/content/repositories/snapshots/")
 		    }
 		}
