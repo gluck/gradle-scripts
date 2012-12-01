@@ -1,1 +1,5 @@
+ext.ullinkGradleScripts = './'
+apply from: "${ext.ullinkGradleScripts}/task-rules.gradle"
+apply from: "${ext.ullinkGradleScripts}/functions.gradle"
+
 apply plugin: 'base'
