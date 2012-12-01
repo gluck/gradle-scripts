@@ -1,0 +1,194 @@
+// Custom DSLD for extra content assist within Eclipse
+
+package dsld;
+
+import org.codehaus.groovy.ast.*
+import org.codehaus.groovy.ast.expr.*
+import org.codehaus.groovy.eclipse.dsl.*
+import org.codehaus.groovy.eclipse.dsl.pointcuts.*
+import org.codehaus.groovy.eclipse.dsl.pointcuts.impl.*
+import org.eclipse.core.resources.*;
+import org.eclipse.jdt.groovy.search.*
+import org.eclipse.jdt.groovy.search.VariableScope.CallAndType;
+
+registerPointcut('mine', { null })
+def mi = mine()
+mi.accept { }
+
+def customPointcut(Closure closure) {
+	new AbstractPointcut(mine().containerIdentifier, 'customPointcut') {
+		@Override
+		public Collection<?> matches(GroovyDSLDContext pattern, Object toMatch) {
+			pattern.addToBinding('scope', Collections.singletonList(pattern.currentScope))
+			return closure(pattern, toMatch)
+		}
+	}
+}
+
+def enclosingCallsCustom(Closure closure) {
+	customPointcut { GroovyDSLDContext pattern, Object toMatch ->
+		List<CallAndType> enclosing = pattern.currentScope.allEnclosingMethodCallExpressions
+		if (enclosing == null) {
+			return null;
+		}
+		return closure(enclosing)
+	}
+}
+
+def enclosingCallCustom(Closure closure) {
+	customPointcut { GroovyDSLDContext pattern, Object toMatch ->
+		CallAndType enclosing = pattern.currentScope.enclosingMethodCallExpression
+		if (enclosing == null) {
+			return null;
+		}
+		return closure(enclosing)
+	}
+}
+
+def toStack(org.eclipse.jdt.groovy.search.VariableScope currentScope) {
+	currentScope.parent == null ? [currentScope] : toStack(currentScope.parent) + currentScope
+}
+
+def toReverseStackDelegate(org.eclipse.jdt.groovy.search.VariableScope currentScope) {
+	List ret = [currentScope]
+	while (currentScope.parent != null) {
+		currentScope = currentScope.parent
+		ret.add(currentScope)
+	}
+	new LinkedHashSet(ret.collect { it.delegate } ).grep().collect()
+}
+
+// debug helper
+if (false) {
+	(fileExtension("gradle") & customPointcut { GroovyDSLDContext pattern, Object toMatch ->
+		log "toMatch: ${toMatch}"
+		log "pattern.targetType: ${pattern.targetType}"
+		org.eclipse.jdt.groovy.search.VariableScope currentScope = pattern.currentScope
+		def stack = toStack(currentScope)
+		log "pattern.isPrimaryNode: " + pattern.isPrimaryNode()
+		log "pattern.currentScope.isPrimaryNodes: " + stack.collect { it.isPrimaryNode() }
+		log "pattern.currentScope.scopeNode.class: " + stack.collect { it.scopeNode?.class }
+		log "pattern.currentScope.delegates: " + stack.collect { it.delegate }
+		log "pattern.currentScope.this: " + stack.collect { it.this }
+		log "pattern.currentScope.enclosingClosures: " + stack.collect { it.enclosingClosure != null }
+		log "pattern.currentScope.enclosingTypeDeclarations: " + stack.collect { it.enclosingTypeDeclaration }
+		List<CallAndType> enclosing = currentScope.allEnclosingMethodCallExpressions
+		log "pattern.currentScope.allEnclosingMethodCallExpressions: " + enclosing.collect { it.call.methodAsString }
+		log ""
+		null
+	}).accept { }
+}
+
+settingsScript = { fileName("settings.gradle") }
+buildScript = { fileExtension("gradle") & ( ~ settingsScript() ) }
+rootBlock = { isScript() & ( ~ inClosure() ) }
+
+(buildScript() & rootBlock() ).accept {
+	setDelegateType 'org.gradle.api.Project'
+	method name: 'apply', type: void, namedParams: [ plugin : Object]
+}
+
+(settingsScript() & rootBlock()).accept {
+	setDelegateType 'org.gradle.api.initialization.Settings'
+}
+
+OK = Collections.singletonList("ok")
+
+(buildScript() & enclosingCallCustom { CallAndType enclosing ->
+	if (enclosing.call.methodAsString == 'apply' && enclosing.declaringType.toString() == 'org.gradle.api.Project')
+		return OK
+}).accept {
+	property name : 'eclipse', type: 'org.gradle.plugins.ide.eclipse.EclipsePlugin'
+}
+
+def rootBlockSetDelegateType(String name, String delType) {
+	blockSetDelegateType 'org.gradle.api.Project', name, delType
+	(buildScript() & inClosure() /*& currentType('org.gradle.api.Project')*/).accept {
+		if (!currentType.getProperty(name)) {
+			property name : name, type: delType
+		}
+		if (!currentType.getMethod(name, [new Parameter(resolver.resolve(Closure.class.name), 'closure')].toArray(new org.codehaus.groovy.ast.Parameter[1]))) {
+			method name : name, type: void, params : [closure : Closure]
+		}
+	}
+}
+
+def blockSetDelegateType(String parent, String name, String delType) {
+	block(parent, name) {
+		setDelegateType delType
+		collectOuterScope(scope).each {
+			delegatesTo it
+		}
+	}
+}
+def collectOuterScope(Collection scope) {
+	toReverseStackDelegate(scope.first())
+}
+
+def rootBlockRulePrefixSetDelegateType(String prefix, String delType) {
+	blockRulePrefixSetDelegateType 'org.gradle.api.Project', prefix, delType
+}
+
+def blockRulePrefixSetDelegateType(String parent, String prefix, String delType) {
+	(buildScript() & inClosure() & enclosingCallCustom { CallAndType enclosing ->
+		if (enclosing.call.methodAsString.startsWith(prefix) && enclosing.declaringType.toString() == parent)
+			return OK
+	}).accept({
+		setDelegateType delType
+		collectOuterScope(scope).each {
+			delegatesTo it
+		}
+	})
+}
+
+def block(String parent, String name, Closure closure) {
+	(buildScript() & inClosure() & enclosingCallCustom { CallAndType enclosing ->
+		if (enclosing.call.methodAsString == name && enclosing.declaringType.toString() == parent)
+			return OK
+	}).accept(closure)
+}
+
+rootBlockSetDelegateType 'repositories'    , 'org.gradle.api.artifacts.dsl.RepositoryHandler'
+rootBlockSetDelegateType 'configurations'  , 'org.gradle.api.artifacts.ConfigurationContainer'
+rootBlockSetDelegateType 'artifacts'       , 'org.gradle.api.artifacts.dsl.ArtifactHandler'
+rootBlockSetDelegateType 'dependencies'    , 'org.gradle.api.artifacts.dsl.DependencyHandler'
+rootBlockSetDelegateType 'task'            , 'org.gradle.api.Task'
+rootBlockSetDelegateType 'install'         , 'org.gradle.api.tasks.Upload'
+rootBlockRulePrefixSetDelegateType 'upload', 'org.gradle.api.tasks.Upload'
+rootBlockRulePrefixSetDelegateType 'clean' , 'org.gradle.api.tasks.Delete'
+
+block('org.gradle.api.tasks.Upload', 'repositories') {
+	setDelegateType 'org.gradle.api.artifacts.dsl.RepositoryHandler'
+	delegatesTo 'org.gradle.api.plugins.MavenRepositoryHandlerConvention'
+	collectOuterScope(scope).each {
+		delegatesTo it
+	}
+}
+blockSetDelegateType 'org.gradle.api.plugins.MavenRepositoryHandlerConvention', 'mavenInstaller', 'org.gradle.api.artifacts.maven.MavenResolver'
+blockSetDelegateType 'org.gradle.api.plugins.MavenRepositoryHandlerConvention', 'mavenDeployer', 'org.gradle.api.artifacts.maven.GroovyMavenDeployer'
+
+// requires gradle-ide-1.2.jar & sources
+rootBlockSetDelegateType 'eclipse'       , 'org.gradle.plugins.ide.eclipse.model.EclipseModel'
+blockSetDelegateType 'org.gradle.plugins.ide.eclipse.model.EclipseModel', 'classpath', 'org.gradle.plugins.ide.eclipse.model.EclipseClasspath'
+blockSetDelegateType 'org.gradle.plugins.ide.eclipse.model.EclipseClasspath', 'file', 'org.gradle.plugins.ide.api.XmlFileContentMerger'
+
+rootBlockSetDelegateType 'idea'          , 'org.gradle.plugins.ide.idea.model.IdeaModel'
+
+// requires gradle-plugins-1.2.jar & sources
+rootBlockSetDelegateType 'javadoc'       ,'org.gradle.api.tasks.javadoc.Javadoc'
+rootBlockSetDelegateType 'groovydoc'     ,'org.gradle.api.tasks.javadoc.Groovydoc'
+
+// requires gradle-scala-1.2.jar & sources
+rootBlockSetDelegateType 'scaladoc'       ,'org.gradle.api.tasks.scala.ScalaDoc'
+
+// requires gradle-signing-1.2.jar & sources
+rootBlockSetDelegateType 'signing'        ,'org.gradle.plugins.signing.SigningExtension'
+
+
+/*
+		Map map = GroovyDSLCoreActivator.getDefault().getContextStoreManager().getDSLDStore('gradle-scripts').pointcutContributionMap
+		map = map.findAll({
+			it.key.containerIdentifier.toString().contains('GradleDSLD')
+		})
+		map.entrySet().last().value.first().contributionClosure()
+ */

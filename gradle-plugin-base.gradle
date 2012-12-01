@@ -1,0 +1,108 @@
+import org.gradle.api.Action;
+import org.gradle.api.artifacts.dsl.RepositoryHandler;
+import org.gradle.api.internal.artifacts.dsl.DefaultRepositoryHandler;
+import org.gradle.api.internal.plugins.DslObject;
+import org.gradle.api.publication.maven.internal.DefaultMavenRepositoryHandlerConvention;
+import org.gradle.api.tasks.Upload;
+
+apply plugin: 'eclipse'
+apply plugin: 'groovy'
+apply plugin: 'signing'
+apply plugin: 'maven'
+
+repositories {
+	mavenLocal()
+    mavenCentral()
+}
+
+dependencies {
+    compile gradleApi()
+    groovy localGroovy()
+}
+
+groovydoc {
+    source = sourceSets.main.allSource
+}
+
+task groovydocJar(type: Jar, dependsOn: groovydoc) {
+    classifier = 'javadoc'
+    from 'build/docs/groovydoc'
+}
+
+task sourcesJar(type: Jar) {
+    from sourceSets.main.allSource
+    classifier = 'sources'
+}
+
+artifacts {
+    archives jar
+    archives groovydocJar
+    archives sourcesJar
+}
+
+eclipse {
+    classpath {
+        file {
+            whenMerged {org.gradle.plugins.ide.eclipse.model.Classpath cp ->
+                String gradleHome = gradle.getGradleHomeDir().absolutePath.replace(File.separator, '/')
+                String gradleSrc = "${gradleHome}/src"
+                cp.entries.each {org.gradle.plugins.ide.eclipse.model.ClasspathEntry entry ->
+                    if ((entry in org.gradle.plugins.ide.eclipse.model.AbstractLibrary) && (entry.library.file.name.startsWith('gradle-'))) {
+                        entry.sourcePath = new org.gradle.plugins.ide.eclipse.model.internal.FileReferenceFactory().fromPath(gradleSrc)
+                    }
+                }
+            }
+        }
+    }
+}
+
+def customizePom(pom) {
+	pom.project {
+		name project.name
+		description project.description
+	}
+	if (project.ext.has('pom')) {
+		project.ext.pom(pom)
+	}
+}
+
+def setupUploadArchives(sonatypeRepositoryUrl) {
+    signing {
+        sign configurations.archives
+    }
+
+	uploadArchives {
+        repositories {
+            mavenDeployer {
+				customizePom(pom)
+                beforeDeployment { MavenDeployment deployment ->
+                    signing.signPom(deployment)
+                }
+                repository(url: sonatypeRepositoryUrl) {
+                    authentication(userName: sonatypeUsername, password: sonatypePassword)
+                }
+            }
+        }
+    }
+}
+
+allprojects {
+	afterEvaluate { project ->
+		if (hasProperty("release")) {
+		    setupUploadArchives("https://oss.sonatype.org/service/local/staging/deploy/maven2/")
+		} else {
+		    version += "-SNAPSHOT"
+		    if (hasProperty("snapshot")) {
+		        setupUploadArchives("https://oss.sonatype.org/content/repositories/snapshots/")
+		    }
+		}
+		
+		install {
+		    repositories {
+		        mavenInstaller {
+					customizePom(pom)
+		        }
+		    }
+		}
+	}
+}

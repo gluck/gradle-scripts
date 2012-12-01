@@ -1,0 +1,16 @@
+/* FileCollection */ project.metaClass.getTools = { ->
+	def jHome = System.getProperty('java.home')
+	def path = new File(jHome, 'lib/tools.jar')
+	if (path.exists()) {
+		return files(path)
+	}
+	path = new File(jHome, '../lib/tools.jar')
+	if (path.exists()) {
+		return files(path)
+	}
+	assert false, "Failed to find tools.jar"
+}
+
+/* void */ project.metaClass.replaceAssemblyAttribute = { def file, String name, String value ->
+	ant.replaceregexp(file: project.file(file), match: /^\[assembly: /+name+/\(".*"\)\]$/, replace: '[assembly: '+name+'("'+value+'")]', byline: true)
+}

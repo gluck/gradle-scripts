@@ -1,0 +1,66 @@
+
+Task createTask(String name) {
+	Map args = [:]
+	if (hasProperty('type')) {
+		String type = getProperty('type')
+		def found = tasks.find { (it.class.name - '_Decorated') == type }
+		if (!found) {
+			found = tasks.find { it.name == type }
+		}
+		if (!found) {
+			found = tasks.find { (it.class.simpleName - '_Decorated') == type }
+		}
+		if (!found) {
+			found = tasks.find { (it.class.simpleName - '_Decorated').toLowerCase() == type.toLowerCase() }
+		}
+		if (found) {
+			args.type = found.class
+		}
+	}
+	if (hasProperty('dependsOn')) {
+		args.dependsOn = getProperty('dependsOn')
+	}
+	Task dummyTask = task(args, name)
+	if (hasProperty('configure')) {
+		def script = 'return { ' + getProperty('configure') + ' }'
+		def del = Eval.me(script)
+		del.setResolveStrategy Closure.DELEGATE_FIRST
+		del.delegate = dummyTask
+		del()
+	}
+	dummyTask
+}
+
+
+// gradle "exec compileJava.classpath.files.each { println it }"
+tasks.addRule('Pattern: "exec <some groovy code>": Executes the given code within a dynamic task') { String taskName ->
+    final String prefix = "exec"
+    if (taskName.startsWith(prefix) && taskName.length() >= prefix.length() && !tasks.findByName(taskName)) {
+        Task dummyTask = createTask(taskName)
+        def script = 'return { ' + (taskName-prefix) + ' }'
+		def del = Eval.me(script)
+        dummyTask << {
+			del.setResolveStrategy Closure.DELEGATE_FIRST
+			del.delegate = project
+			del()
+        }
+    }
+}
+
+// gradle "println convention.plugins.base.distsDir"
+// gradle "println configurations"
+// gradle "println tasks.jar.outputs.files.files"
+tasks.addRule('Pattern: "println <some groovy code>": Executes the given code within a dynamic task, and print the result') { String taskName ->
+	final String prefix = "println"
+	if (taskName.startsWith(prefix) && taskName.length() > prefix.length() && !tasks.findByName(taskName)) {
+		Task dummyTask = createTask(taskName)
+		def script = 'return { ' + (taskName-prefix) + ' }'
+		def del = Eval.me(script)
+		dummyTask << {
+			del.setResolveStrategy Closure.DELEGATE_FIRST
+			del.delegate = project
+			println del()
+		}
+	}
+}
+
