@@ -1,20 +1,45 @@
+import org.codehaus.groovy.tools.GroovyClass;
+import org.gradle.api.Project;
+import org.gradle.api.tasks.wrapper.Wrapper;
+
+Class<?> classForNameNoThrow(String s) {
+	// classloader bitches
+	try {
+		// not much in this one
+		return Class.forName(s)
+	} catch (Exception e) {
+		logger.debug "Failed: ${e}"
+	}
+	try {
+		// gradle-core
+		return Project.class.getClassLoader().loadClass(s)
+	} catch (Exception ee) {
+		logger.debug "Failed: ${ee}"
+	}
+	try {
+		// gradle-plugins
+		return Wrapper.class.getClassLoader().loadClass(s)
+	} catch (Exception eee) {
+		logger.debug "Failed: ${eee}"
+	}
+}
 
 Task createTask(String name) {
 	Map args = [:]
 	if (hasProperty('type')) {
 		String type = getProperty('type')
 		def found = tasks.find { (it.class.name - '_Decorated') == type }
-		if (!found) {
-			found = tasks.find { it.name == type }
-		}
-		if (!found) {
-			found = tasks.find { (it.class.simpleName - '_Decorated') == type }
-		}
-		if (!found) {
-			found = tasks.find { (it.class.simpleName - '_Decorated').toLowerCase() == type.toLowerCase() }
-		}
+		found = found ?: tasks.find { it.name == type }
+		found = found ?: tasks.find { (it.class.simpleName - '_Decorated') == type }
+		found = found ?: tasks.find { (it.class.simpleName - '_Decorated').toLowerCase() == type.toLowerCase() }
+		found = found ?: classForNameNoThrow(type)
+		found = found ?: classForNameNoThrow("org.gradle.api.tasks.${type}")
+		found = found ?: classForNameNoThrow("org.gradle.api.tasks.${type.toLowerCase()}.${type}")
 		if (found) {
-			args.type = found.class
+			args.type = found instanceof Class ? found : found.class
+			logger.info "Inline task type: ${args.type}"
+		} else {
+			throw new GradleException("Failed to find requested task base type ${type}")
 		}
 	}
 	if (hasProperty('dependsOn')) {
@@ -28,11 +53,22 @@ Task createTask(String name) {
 		del.delegate = dummyTask
 		del()
 	}
+	Map<String, ?> props = getProperties()
+	dummyTask.metaClass.getProperties().each() {
+		def value = props[it.name]
+		if (value && !Project.class.metaClass.hasProperty(null, it.name)) {
+			if (it.type == String.class && value instanceof String) {
+				it.setProperty(dummyTask, value)
+			}
+			// TODO support other types (numbers)
+		}
+	}
 	dummyTask
 }
 
 
 // gradle "exec compileJava.classpath.files.each { println it }"
+// gradle -Ptype=Wrapper -PgradleVersion=1.3 exec
 tasks.addRule('Pattern: "exec <some groovy code>": Executes the given code within a dynamic task') { String taskName ->
     final String prefix = "exec"
     if (taskName.startsWith(prefix) && taskName.length() >= prefix.length() && !tasks.findByName(taskName)) {

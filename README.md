@@ -14,6 +14,7 @@ Pattern: "exec <some groovy code>": Executes the given code within a dynamic tas
 
 Sample usage:
     gradle "exec compileJava.classpath.files.each { println it }"
+    gradle -Ptype=Wrapper -PgradleVersion=1.3 exec
     
 Advanced usage:
     gradle -Ptype=NuGet -PdependsOn=nuget "-Pconfigure=command='push'" exec
