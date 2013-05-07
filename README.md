@@ -31,6 +31,15 @@ Sample usages:
     gradle "println configurations"
     gradle "println tasks.jar.outputs.files.files"
     
+### custom
+
+Pattern: "Pattern: "custom<Task> <some groovy code>": Executes the given task, with the given code as extra configure-ation
+
+Sample usages:
+
+    gradle -Pdebug=true customTest
+    gradle "customTest debug true"
+    
 ## functions.gradle
 
 Some functions that I find handy:
