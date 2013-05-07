@@ -33,7 +33,7 @@ Sample usages:
     
 ### custom
 
-Pattern: "Pattern: "custom<Task> <some groovy code>": Executes the given task, with the given code as extra configure-ation
+Pattern: "custom<Task> <some groovy code>": Executes the given task, with the given code as extra configure-ation
 
 Sample usages:
 
