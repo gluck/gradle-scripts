@@ -1,5 +1,7 @@
+import groovy.lang.Closure;
 import org.codehaus.groovy.tools.GroovyClass;
 import org.gradle.api.Project;
+import org.gradle.api.Rule;
 import org.gradle.api.tasks.wrapper.Wrapper;
 
 Class<?> classForNameNoThrow(String s) {
@@ -24,10 +26,9 @@ Class<?> classForNameNoThrow(String s) {
 	}
 }
 
-Task createTask(String name) {
-	Map args = [:]
+Task createTask(String name, Map args = [:]) {
 	if (hasProperty('type')) {
-		String type = getProperty('type')
+		String type = project.getProperty('type')
 		def found = tasks.find { (it.class.name - '_Decorated') == type }
 		found = found ?: tasks.find { it.name == type }
 		found = found ?: tasks.find { (it.class.simpleName - '_Decorated') == type }
@@ -42,22 +43,23 @@ Task createTask(String name) {
 			throw new GradleException("Failed to find requested task base type ${type}")
 		}
 	}
-	if (hasProperty('dependsOn')) {
+	if (project.hasProperty('dependsOn')) {
 		args.dependsOn = getProperty('dependsOn')
 	}
-	Task dummyTask = task(args, name)
-	if (hasProperty('configure')) {
+	Task dummyTask = project.task(args, name)
+	if (project.hasProperty('configure')) {
 		def script = 'return { ' + getProperty('configure') + ' }'
 		def del = Eval.me(script)
 		del.setResolveStrategy Closure.DELEGATE_FIRST
 		del.delegate = dummyTask
 		del()
 	}
-	Map<String, ?> props = getProperties()
+	Map<String, ?> props = project.getProperties()
 	dummyTask.metaClass.getProperties().each() {
 		def value = props[it.name]
 		if (value && !Project.class.metaClass.hasProperty(null, it.name)) {
-			if (it.type == String.class && value instanceof String) {
+            if (it.type == String.class || it.type == Boolean.class || it.type == boolean.class) {
+                println "set ${it.name} = ${value}"
 				it.setProperty(dummyTask, value)
 			}
 			// TODO support other types (numbers)
@@ -66,10 +68,18 @@ Task createTask(String name) {
 	dummyTask
 }
 
+Rule addRule(String description, Closure ruleAction)
+{
+    if (!tasks.getRules().any { it.description == description} )
+    {
+        tasks.addRule(description, ruleAction)
+    }
+}
+
 
 // gradle "exec compileJava.classpath.files.each { println it }"
 // gradle -Ptype=Wrapper -PgradleVersion=1.3 exec
-tasks.addRule('Pattern: "exec <some groovy code>": Executes the given code within a dynamic task') { String taskName ->
+addRule('Pattern: "exec <some groovy code>": Executes the given code within a dynamic task') { String taskName ->
     final String prefix = "exec"
     if (taskName.startsWith(prefix) && taskName.length() >= prefix.length() && !tasks.findByName(taskName)) {
         Task dummyTask = createTask(taskName)
@@ -86,7 +96,7 @@ tasks.addRule('Pattern: "exec <some groovy code>": Executes the given code withi
 // gradle "println convention.plugins.base.distsDir"
 // gradle "println configurations"
 // gradle "println tasks.jar.outputs.files.files"
-tasks.addRule('Pattern: "println <some groovy code>": Executes the given code within a dynamic task, and print the result') { String taskName ->
+addRule('Pattern: "println <some groovy code>": Executes the given code within a dynamic task, and print the result') { String taskName ->
 	final String prefix = "println"
 	if (taskName.startsWith(prefix) && taskName.length() > prefix.length() && !tasks.findByName(taskName)) {
 		Task dummyTask = createTask(taskName)
@@ -98,5 +108,46 @@ tasks.addRule('Pattern: "println <some groovy code>": Executes the given code wi
 			println del()
 		}
 	}
+}
+
+// gradle "customTest debug true"
+// gradle -Pdebug=true customTest
+addRule('Pattern: "custom<Task> <some groovy code>": Executes the given task, with the given code as extra configure-ation') { String taskName ->
+    final String prefix = "custom"
+    if (taskName.startsWith(prefix) && taskName.length() > prefix.length() && !tasks.findByName(taskName)) {
+        String orig = taskName-prefix
+        String extra
+        int i = orig.indexOf(' ')
+        if (i != -1)
+        {
+            extra = orig.substring(i+1)
+            orig = orig.substring(0, i)
+        }
+        orig = '' + orig.charAt(0).toLowerCase() + orig.substring(1)
+        def task = tasks.findByName(orig)
+        
+        Map<String, ?> props = project.getProperties()
+        task.metaClass.getProperties().each() {
+            def value = props[it.name]
+            if (value && !Project.class.metaClass.hasProperty(null, it.name)) {
+                if (it.type == String.class || it.type == Boolean.class || it.type == boolean.class) {
+                    println "set ${it.name} = ${value}"
+                    it.setProperty(task, value)
+                }
+                // TODO support other types (numbers)
+            }
+        }
+        Map args = [dependsOn: task]
+        Task dummyTask = project.task(args, taskName)
+        if (extra)
+        {
+            def script = 'return { ' + extra + ' }'
+            def del = Eval.me(script)
+            del.setResolveStrategy Closure.DELEGATE_FIRST
+            del.delegate = task
+            del()
+        }
+        dummyTask
+    }
 }
 
