@@ -47,6 +47,11 @@ Some functions that I find handy:
  - FileCollection getTools() : returns tools.jar path for current JDK
  - void replaceAssemblyAttribute(def file, String name, String value) : helper to replace Assembly attributes in C# AssemblyInfo.cs file
     
+## optional.gradle
+
+Allows to specify optional/packaged/internal dependencies in you build.
+Also removes test dependencies from your published pom.
+
 ## gradle-plugin-base.gradle
 
 Gradle plugin common build file, with the following features:
