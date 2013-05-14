@@ -24,33 +24,7 @@ project.ext {
     optional = { optionalDeps << it; it }
     provided = { providedDeps << it; it }
     internal = { internalDeps << it; it }
-}
-
-
-afterEvaluate { project ->
-        
-    def deployers = []
-
-    project.install {
-        deployers << repositories.mavenInstaller
-    }
-    
-    // storing pom list in project extension allows others to include poms to 'customize'
-    if (project.ext.properties.containsKey('poms')) {
-        project.ext.poms += deployers*.pom
-    } else {
-        project.ext.poms = deployers*.pom
-    }
-    
-    project.ext {
-        modifyPom = { Closure modification ->
-            project.poms.each {
-                it.whenConfigured(modification)
-            }
-        }
-    }
-
-    project.modifyPom { pom ->
+    patchPom = { pom ->
         optionalDeps.each { dep ->
             pom.dependencies.find { matches(it, dep) }.optional = true
         }
@@ -62,6 +36,20 @@ afterEvaluate { project ->
         }
         // no need to publish test dependencies
         pom.dependencies.removeAll { it.scope == "test" }
+    }
+}
+
+
+afterEvaluate { project ->
+        
+    def deployers = []
+
+    project.install {
+        deployers << repositories.mavenInstaller
+    }
+    
+    deployers*.pom.each {
+        it.whenConfigured(project.patchPom)
     }
 }
 
