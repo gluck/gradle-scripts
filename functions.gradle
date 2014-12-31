@@ -8,7 +8,8 @@
 	if (path.exists()) {
 		return files(path)
 	}
-	assert false, "Failed to find tools.jar"
+	// Can't assert like that, as calling project.properties will evaluate this block even if tools is never used
+	// assert false, "Failed to find tools.jar"
 }
 
 /* void */ project.metaClass.replaceAssemblyAttribute = { def file, String name, String value ->
